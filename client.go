@@ -85,6 +85,20 @@ func (client *Client) post(resource string, params map[string]string, input inte
 	return nil
 }
 
+func (client *Client) get(resource string, params map[string]string, output interface{}) error {
+	resp, err := client.http.Get(client.endpointURL(resource, params))
+	if err != nil {
+		return err
+	}
+	if err := check(resp); err != nil {
+		return err
+	}
+	if err := process(resp, output); err != nil {
+		return err
+	}
+	return nil
+}
+
 func check(resp *http.Response) error {
 	if resp.StatusCode != http.StatusOK {
 		bytes, err := ioutil.ReadAll(resp.Body)
