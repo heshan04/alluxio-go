@@ -48,14 +48,19 @@ func setupClient(t *testing.T, handler http.Handler) (*Client, func()) {
 	}
 }
 
+func jsonHandlerForPath(t *testing.T, resource string, input, output, expected interface{}) http.HandlerFunc {
+	return jsonHandler(t, resource, pathsPrefix, input, output, expected)
+}
+
 // jsonHandler creates a handler for the given resource that:
 // 1. JSON-decodes the input from the request body
 // 2. checks that the received input matches the expected input
 // 3. JSON-encodes the given output to the response body
-func jsonHandler(t *testing.T, resource string, input, output, expected interface{}) http.HandlerFunc {
+func jsonHandler(t *testing.T, resource string, prefix string, input, output,
+	expected interface{}) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		if got, want := r.URL.Path, join("", apiPrefix, pathsPrefix, resource); got != want {
+		if got, want := r.URL.Path, join("", apiPrefix, prefix, resource); got != want {
 			t.Fatalf("Unexpected path: got %v, want %v", got, want)
 		}
 		body, err := ioutil.ReadAll(r.Body)
@@ -63,11 +68,13 @@ func jsonHandler(t *testing.T, resource string, input, output, expected interfac
 			t.Fatalf("ReadAll() failed: %v", err)
 		}
 		decoder := json.NewDecoder(bytes.NewBuffer(body))
-		if err := decoder.Decode(&input); err != nil {
-			t.Fatalf("Decode() failed: %v\nBody:\n%s", err, body)
-		}
-		if !reflect.DeepEqual(input, expected) {
-			t.Fatalf("Unexpected input: got %v, want %v", input, expected)
+		if input != nil {
+			if err := decoder.Decode(&input); err != nil {
+				t.Fatalf("Decode() failed: %v\nBody:\n%s", err, body)
+			}
+			if !reflect.DeepEqual(input, expected) {
+				t.Fatalf("Unexpected input: got %v, want %v", input, expected)
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(output); err != nil {
@@ -79,7 +86,7 @@ func jsonHandler(t *testing.T, resource string, input, output, expected interfac
 func TestFileSystemCreateDirectory(t *testing.T) {
 	input, expected := option.CreateDirectory{}, optiontest.RandomCreateDirectory()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, createDirectory), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, createDirectory), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.CreateDirectory(path, &expected); err != nil {
 		t.Fatalf("CreateDirectory() failed: %v", err)
@@ -90,7 +97,7 @@ func TestFileSystemCreateFile(t *testing.T) {
 	input, expected := option.CreateFile{}, optiontest.RandomCreateFile()
 	output := rand.Int()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, createFile), &input, output, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, createFile), &input, output, &expected))
 	defer cleanup()
 	if id, err := fs.CreateFile(path, &expected); err != nil {
 		t.Fatalf("CreateFile() failed: %v", err)
@@ -102,7 +109,7 @@ func TestFileSystemCreateFile(t *testing.T) {
 func TestFileSystemDelete(t *testing.T) {
 	input, expected := option.Delete{}, optiontest.RandomDelete()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, delete), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, delete), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.Delete(path, &expected); err != nil {
 		t.Fatalf("Delete() failed: %v", err)
@@ -113,7 +120,7 @@ func TestFileSystemExists(t *testing.T) {
 	input, expected := option.Exists{}, optiontest.RandomExists()
 	path := "/foo"
 	output := wiretest.RandomBool()
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, exists), &input, output, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, exists), &input, output, &expected))
 	defer cleanup()
 	if ok, err := fs.Exists(path, &expected); err != nil {
 		t.Fatalf("Exists() failed: %v", err)
@@ -125,7 +132,7 @@ func TestFileSystemExists(t *testing.T) {
 func TestFileSystemFree(t *testing.T) {
 	input, expected := option.Free{}, optiontest.RandomFree()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, free), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, free), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.Free(path, &expected); err != nil {
 		t.Fatalf("Free() failed: %v", err)
@@ -136,7 +143,7 @@ func TestFileSystemGetStatus(t *testing.T) {
 	input, expected := option.GetStatus{}, optiontest.RandomGetStatus()
 	output := wiretest.RandomFileInfo()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, getStatus), &input, output, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, getStatus), &input, output, &expected))
 	defer cleanup()
 	if fileInfo, err := fs.GetStatus(path, &expected); err != nil {
 		t.Fatalf("GetStatus() failed: %v", err)
@@ -152,7 +159,7 @@ func TestFileSystemListStatus(t *testing.T) {
 	for i := 0; i < len(output); i++ {
 		output[i] = wiretest.RandomFileInfo()
 	}
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, listStatus), &input, output, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, listStatus), &input, output, &expected))
 	defer cleanup()
 	if fileInfos, err := fs.ListStatus(path, &expected); err != nil {
 		t.Fatalf("ListStatus() failed: %v", err)
@@ -164,7 +171,7 @@ func TestFileSystemListStatus(t *testing.T) {
 func TestFileSystemMount(t *testing.T) {
 	input, expected := option.Mount{}, optiontest.RandomMount()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, mount), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, mount), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.Mount(path, wiretest.RandomString(), &expected); err != nil {
 		t.Fatalf("Mount() failed: %v", err)
@@ -175,7 +182,7 @@ func TestFileSystemOpenFile(t *testing.T) {
 	input, expected := option.OpenFile{}, optiontest.RandomOpenFile()
 	output := rand.Int()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, openFile), &input, output, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, openFile), &input, output, &expected))
 	defer cleanup()
 	if id, err := fs.OpenFile(path, &expected); err != nil {
 		t.Fatalf("OpenFile() failed: %v", err)
@@ -187,7 +194,7 @@ func TestFileSystemOpenFile(t *testing.T) {
 func TestFileSystemRename(t *testing.T) {
 	input, expected := option.Rename{}, optiontest.RandomRename()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, rename), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, rename), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.Rename(path, wiretest.RandomString(), &expected); err != nil {
 		t.Fatalf("Rename() failed: %v", err)
@@ -197,7 +204,7 @@ func TestFileSystemRename(t *testing.T) {
 func TestFileSystemSetAttribute(t *testing.T) {
 	input, expected := option.SetAttribute{}, optiontest.RandomSetAttribute()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, setAttribute), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, setAttribute), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.SetAttribute(path, &expected); err != nil {
 		t.Fatalf("SetAttribute() failed: %v", err)
@@ -207,7 +214,7 @@ func TestFileSystemSetAttribute(t *testing.T) {
 func TestFileSystemUnmount(t *testing.T) {
 	input, expected := option.Unmount{}, optiontest.RandomUnmount()
 	path := "/foo"
-	fs, cleanup := setupClient(t, jsonHandler(t, join(path, unmount), &input, nil, &expected))
+	fs, cleanup := setupClient(t, jsonHandlerForPath(t, join(path, unmount), &input, nil, &expected))
 	defer cleanup()
 	if err := fs.Unmount(path, &expected); err != nil {
 		t.Fatalf("Unmount() failed: %v", err)
